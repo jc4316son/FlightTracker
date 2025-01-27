@@ -28,7 +28,7 @@ const handleDbError = (error: any) => {
 
 // Helper function to handle database queries with proper error handling
 const dbQuery = async <T>(
-  query: Promise<{ data: T | null; error: any }>
+  query: any
 ): Promise<{ data: T | null; error: string | null }> => {
   try {
     const { data, error } = await query;
@@ -47,14 +47,33 @@ const dbQuery = async <T>(
 
 // Database helper functions
 export const db = {
+  // Auth
+  auth: {
+    async getUser() {
+      return supabase.auth.getUser();
+    },
+
+    async signOut() {
+      return supabase.auth.signOut();
+    },
+
+    async signInWithPassword(credentials: { email: string; password: string }) {
+      return supabase.auth.signInWithPassword(credentials);
+    },
+
+    async signUp(credentials: { email: string; password: string }) {
+      return supabase.auth.signUp(credentials);
+    }
+  },
+
   // Flights
   flights: {
     async getAll() {
       return dbQuery<Flight[]>(
         supabase
           .from('flights')
-          .select('*')
-          .order('start_date', { ascending: true })
+          .select()
+          .order('start_date')
       );
     },
     
@@ -62,7 +81,7 @@ export const db = {
       return dbQuery<Flight>(
         supabase
           .from('flights')
-          .select('*')
+          .select()
           .eq('id', id)
           .single()
       );
@@ -105,8 +124,8 @@ export const db = {
       return dbQuery<Company[]>(
         supabase
           .from('companies')
-          .select('*')
-          .order('name', { ascending: true })
+          .select()
+          .order('name')
       );
     },
 
@@ -114,7 +133,7 @@ export const db = {
       return dbQuery<Company>(
         supabase
           .from('companies')
-          .select('*')
+          .select()
           .eq('id', id)
           .single()
       );
@@ -148,9 +167,9 @@ export const db = {
       return dbQuery<FlightTask[]>(
         supabase
           .from('flight_tasks')
-          .select('*')
+          .select()
           .eq('flight_id', flightId)
-          .order('created_at', { ascending: true })
+          .order('created_at')
       );
     },
 
@@ -181,6 +200,65 @@ export const db = {
           .from('flight_tasks')
           .delete()
           .eq('id', id)
+      );
+    }
+  },
+  
+  // Company Tails
+  companyTails: {
+    async getByCompany(companyName: string) {
+      const { data: company } = await dbQuery<Company>(
+        supabase
+          .from('companies')
+          .select()
+          .eq('name', companyName)
+          .single()
+      );
+
+      if (!company) return { data: [], error: null };
+
+      return dbQuery<{ tail_number: string }[]>(
+        supabase
+          .from('company_tails')
+          .select()
+          .eq('company_id', company.id)
+      );
+    },
+
+    async create(companyId: string, tailNumber: string) {
+      return dbQuery(
+        supabase
+          .from('company_tails')
+          .insert({ company_id: companyId, tail_number: tailNumber })
+          .select()
+          .single()
+      );
+    },
+
+    async delete(companyId: string, tailNumber: string) {
+      return dbQuery(
+        supabase
+          .from('company_tails')
+          .delete()
+          .eq('company_id', companyId)
+          .eq('tail_number', tailNumber)
+      );
+    }
+  },
+
+  // Audit Logs
+  auditLogs: {
+    async create(data: {
+      flight_id: string;
+      user_id: string;
+      action: string;
+      changes: any;
+    }) {
+      return dbQuery(
+        supabase
+          .from('audit_logs')
+          .insert(data)
+          .select()
       );
     }
   }

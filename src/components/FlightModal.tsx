@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useForm } from 'react-hook-form';
 import { X, Plus, Trash2, Check, Square, ClipboardList } from 'lucide-react';
-import { supabase } from '../lib/supabase';
+import { db } from '../lib/db';
 import type { Flight, Company, FlightTask } from '../types';
 
 interface FlightModalProps {
@@ -74,54 +74,32 @@ function FlightModal({ flight, onClose, onSuccess }: FlightModalProps) {
   }, [watchStartDate, watchEndDate, setValue]);
 
   const fetchCompanies = async () => {
-    try {
-      const { data, error } = await supabase
-        .from('companies')
-        .select('*');
-
-      if (error) throw error;
-      setCompanies(data || []);
-    } catch (error) {
+    const { data, error } = await db.companies.getAll();
+    if (error) {
       console.error('Error fetching companies:', error);
+    } else {
+      setCompanies(data || []);
     }
   };
 
   const fetchCompanyTails = async (companyName: string) => {
-    try {
-      const { data: company } = await supabase
-        .from('companies')
-        .select('id')
-        .eq('name', companyName)
-        .single();
-
-      if (company) {
-        const { data, error } = await supabase
-          .from('company_tails')
-          .select('tail_number')
-          .eq('company_id', company.id);
-
-        if (error) throw error;
-        setCompanyTails(data?.map(t => t.tail_number) || []);
-      }
-    } catch (error) {
+    const { data, error } = await db.companyTails.getByCompany(companyName);
+    if (error) {
       console.error('Error fetching company tails:', error);
       setCompanyTails([]);
+    } else {
+      setCompanyTails(data?.map(t => t.tail_number) || []);
     }
   };
 
   const fetchTasks = async () => {
     if (!flight) return;
 
-    try {
-      const { data, error } = await supabase
-        .from('flight_tasks')
-        .select('*')
-        .eq('flight_id', flight.id);
-
-      if (error) throw error;
-      setTasks(data || []);
-    } catch (error) {
+    const { data, error } = await db.tasks.getByFlight(flight.id);
+    if (error) {
       console.error('Error fetching tasks:', error);
+    } else {
+      setTasks(data || []);
     }
   };
 
@@ -129,19 +107,18 @@ function FlightModal({ flight, onClose, onSuccess }: FlightModalProps) {
     if (!flight || !newTask.trim()) return;
 
     try {
-      const user = (await supabase.auth.getUser()).data.user;
+      const user = (await db.auth.getUser()).data.user;
       if (!user) return;
 
-      const { error } = await supabase
-        .from('flight_tasks')
-        .insert({
-          flight_id: flight.id,
-          description: newTask.trim(),
-          created_by: user.id,
-          due_date: newTaskDueDate || null,
-        });
+      const { error } = await db.tasks.create({
+        flight_id: flight.id,
+        description: newTask.trim(),
+        created_by: user.id,
+        due_date: newTaskDueDate || null,
+        completed: false
+      });
 
-      if (error) throw error;
+      if (error) throw new Error(error);
 
       setNewTask('');
       setNewTaskDueDate('');
@@ -153,12 +130,8 @@ function FlightModal({ flight, onClose, onSuccess }: FlightModalProps) {
 
   const toggleTask = async (taskId: string, completed: boolean) => {
     try {
-      const { error } = await supabase
-        .from('flight_tasks')
-        .update({ completed })
-        .eq('id', taskId);
-
-      if (error) throw error;
+      const { error } = await db.tasks.update(taskId, { completed });
+      if (error) throw new Error(error);
 
       fetchTasks();
     } catch (error) {
@@ -168,12 +141,8 @@ function FlightModal({ flight, onClose, onSuccess }: FlightModalProps) {
 
   const deleteTask = async (taskId: string) => {
     try {
-      const { error } = await supabase
-        .from('flight_tasks')
-        .delete()
-        .eq('id', taskId);
-
-      if (error) throw error;
+      const { error } = await db.tasks.delete(taskId);
+      if (error) throw new Error(error);
 
       fetchTasks();
     } catch (error) {
@@ -185,12 +154,8 @@ function FlightModal({ flight, onClose, onSuccess }: FlightModalProps) {
     if (!flight || !confirm('Are you sure you want to cancel this flight?')) return;
 
     try {
-      const { error: updateError } = await supabase
-        .from('flights')
-        .update({ status: 'cancelled' })
-        .eq('id', flight.id);
-
-      if (updateError) throw updateError;
+      const { error } = await db.flights.update(flight.id, { status: 'cancelled' });
+      if (error) throw new Error(error);
 
       onSuccess();
       onClose();
@@ -211,7 +176,7 @@ function FlightModal({ flight, onClose, onSuccess }: FlightModalProps) {
     }
 
     try {
-      const user = (await supabase.auth.getUser()).data.user;
+      const user = (await db.auth.getUser()).data.user;
       if (!user) {
         console.error('No user found');
         return;
@@ -224,39 +189,30 @@ function FlightModal({ flight, onClose, onSuccess }: FlightModalProps) {
       };
 
       if (flight) {
-        const { error: updateError } = await supabase
-          .from('flights')
-          .update(flightData)
-          .eq('id', flight.id);
+        const { error } = await db.flights.update(flight.id, flightData);
+        if (error) throw new Error(error);
 
-        if (updateError) throw updateError;
-
-        await supabase.from('audit_logs').insert({
+        await db.auditLogs.create({
           flight_id: flight.id,
           user_id: user.id,
           action: 'update',
           changes: {
             previous: flight,
             new: flightData,
-          },
+          }
         });
       } else {
-        const { data: newFlight, error: insertError } = await supabase
-          .from('flights')
-          .insert(flightData)
-          .select()
-          .single();
-
-        if (insertError) throw insertError;
+        const { data: newFlight, error } = await db.flights.create(flightData);
+        if (error) throw new Error(error);
 
         if (newFlight) {
-          await supabase.from('audit_logs').insert({
+          await db.auditLogs.create({
             flight_id: newFlight.id,
             user_id: user.id,
             action: 'create',
             changes: {
-              new: newFlight,
-            },
+              new: newFlight
+            }
           });
         }
       }
@@ -414,12 +370,12 @@ function FlightModal({ flight, onClose, onSuccess }: FlightModalProps) {
               </div>
 
               {flight && (
-                <div className="col-span-2 space-y-4">
-                  <div className="border-t pt-4">
-                    <label className="block text-sm font-medium text-gray-700 mb-3">
+                <div className="col-span-2">
+                  <div className="border-t pt-4 space-y-4">
+                    <label className="block text-sm font-medium text-gray-700">
                       Tasks
                     </label>
-                    <div className="flex gap-2 mb-4">
+                    <div className="flex gap-2">
                       <div className="flex-1 space-y-2">
                         <input
                           type="text"

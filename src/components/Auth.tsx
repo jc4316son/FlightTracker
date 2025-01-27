@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { supabase } from '../lib/supabase';
+import { db } from '../lib/db';
 import { Loader2, Plane } from 'lucide-react';
 
 export default function Auth() {
@@ -15,28 +15,27 @@ export default function Auth() {
     setLoading(true);
 
     try {
-      // Try to sign in first since the user might already exist
-      const { error: signInError } = await supabase.auth.signInWithPassword({
+      // Try to sign in first
+      const { error } = await db.auth.signInWithPassword({
         email,
         password,
       });
 
-      if (!signInError) {
+      if (!error) {
         return; // Success!
       }
 
-      // If sign in fails, try to sign up
-      if (signInError.status !== 503) {
-        const { error: signUpError } = await supabase.auth.signUp({
+      // If sign in fails and it's not a service error, try sign up
+      if (error.status !== 503) {
+        const signUpResult = await db.auth.signUp({
           email,
           password,
         });
-
-        if (signUpError) {
-          throw signUpError;
+        if (signUpResult.error) {
+          throw signUpResult.error;
         }
       } else {
-        throw signInError;
+        throw error;
       }
     } catch (error: any) {
       console.error('Supabase request failed', error);

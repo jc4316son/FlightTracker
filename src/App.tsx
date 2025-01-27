@@ -1,12 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import { Calendar, dateFnsLocalizer, Views } from 'react-big-calendar';
-import format from 'date-fns/format';
-import parse from 'date-fns/parse';
-import startOfWeek from 'date-fns/startOfWeek';
-import getDay from 'date-fns/getDay';
-import enUS from 'date-fns/locale/en-US';
+import { format } from 'date-fns/format';
+import { parse } from 'date-fns/parse';
+import { startOfWeek } from 'date-fns/startOfWeek';
+import { getDay } from 'date-fns/getDay';
+import { enUS } from 'date-fns/locale/en-US';
 import { Plus, Plane, Building2, List, Loader2, Filter, ChevronDown, ChevronUp, X, ClipboardList, CheckCircle } from 'lucide-react';
-import { supabase } from './lib/supabase';
 import { db } from './lib/db';
 import type { Flight, Company, FlightTask } from './types';
 import FlightModal from './components/FlightModal';
@@ -38,6 +37,11 @@ const getColorForCompany = (companyName: string) => {
 };
 
 type View = 'calendar' | 'flights' | 'companies';
+type CalendarViewType = 'month' | 'week' | 'day';
+
+interface User {
+  email: string;
+}
 
 function App() {
   const [flights, setFlights] = useState<Flight[]>([]);
@@ -47,12 +51,12 @@ function App() {
   const [isFlightModalOpen, setIsFlightModalOpen] = useState(false);
   const [isCompanyModalOpen, setIsCompanyModalOpen] = useState(false);
   const [currentView, setCurrentView] = useState<View>('calendar');
-  const [session, setSession] = useState(null);
+  const [session, setSession] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
   const [selectedCompanyFilter, setSelectedCompanyFilter] = useState<string>('');
   const [selectedTailFilter, setSelectedTailFilter] = useState<string>('');
   const [authError, setAuthError] = useState<string | null>(null);
-  const [calendarView, setCalendarView] = useState(Views.MONTH);
+  const [calendarView, setCalendarView] = useState<CalendarViewType>(Views.MONTH);
   const [calendarDate, setCalendarDate] = useState(new Date());
   const [startDateFilter, setStartDateFilter] = useState<string>('');
   const [endDateFilter, setEndDateFilter] = useState<string>('');
@@ -77,26 +81,14 @@ function App() {
         setLoading(true);
         setAuthError(null);
 
-        const { data: { session: currentSession }, error } = await supabase.auth.getSession();
+        const { data, error } = await db.auth.getUser();
         
         if (error) throw error;
 
         if (!mounted) return;
 
-        setSession(currentSession);
+        setSession(data.user as User);
         setLoading(false);
-
-        const {
-          data: { subscription },
-        } = supabase.auth.onAuthStateChange((_event, session) => {
-          if (mounted) {
-            setSession(session);
-          }
-        });
-
-        return () => {
-          subscription.unsubscribe();
-        };
       } catch (error: any) {
         console.error('Auth error:', error);
         
@@ -299,279 +291,3 @@ function App() {
             Retry Connection
           </button>
         </div>
-      </div>
-    );
-  }
-
-  if (!session) {
-    return <Auth />;
-  }
-
-  return (
-    <div className="min-h-screen bg-gray-50 p-4">
-      <div className="max-w-7xl mx-auto">
-        {error && (
-          <div className="mb-4 p-4 bg-red-50 border border-red-200 rounded-lg">
-            <p className="text-red-700">{error}</p>
-            <button
-              onClick={fetchData}
-              className="mt-2 text-sm text-red-600 hover:text-red-800"
-            >
-              Retry
-            </button>
-          </div>
-        )}
-
-        <div className="mb-6 flex justify-between items-center">
-          <h1 className="text-3xl font-bold text-gray-900 flex items-center gap-2">
-            <Plane className="h-8 w-8" />
-            Flight Tracker
-          </h1>
-          <div className="flex items-center gap-4">
-            <span className="text-sm text-gray-600">
-              {session.user.email}
-            </span>
-            <button
-              onClick={() => supabase.auth.signOut()}
-              className="text-sm text-gray-600 hover:text-gray-900"
-            >
-              Sign out
-            </button>
-            <button
-              onClick={() => {
-                setSelectedFlight(null);
-                setIsFlightModalOpen(true);
-              }}
-              className="bg-blue-600 text-white px-4 py-2 rounded-lg flex items-center gap-2 hover:bg-blue-700 transition-colors"
-            >
-              <Plus className="h-5 w-5" />
-              Add Flight
-            </button>
-            <button
-              onClick={() => setCurrentView('flights')}
-              className="bg-blue-600 text-white px-4 py-2 rounded-lg flex items-center gap-2 hover:bg-blue-700 transition-colors"
-            >
-              <List className="h-5 w-5" />
-              View Flights
-            </button>
-            <button
-              onClick={() => {
-                setSelectedCompany(null);
-                setIsCompanyModalOpen(true);
-              }}
-              className="bg-blue-600 text-white px-4 py-2 rounded-lg flex items-center gap-2 hover:bg-blue-700 transition-colors"
-            >
-              <Building2 className="h-5 w-5" />
-              Add Company
-            </button>
-            <button
-              onClick={() => setCurrentView('companies')}
-              className="bg-blue-600 text-white px-4 py-2 rounded-lg flex items-center gap-2 hover:bg-blue-700 transition-colors"
-            >
-              <List className="h-5 w-5" />
-              View Companies
-            </button>
-          </div>
-        </div>
-
-        <div className="bg-white rounded-lg shadow-lg p-6">
-          {currentView === 'calendar' && (
-            <div className="space-y-4">
-              <div className="flex justify-between items-center">
-                <button
-                  onClick={() => setShowFilters(!showFilters)}
-                  className="flex items-center gap-2 text-gray-600 hover:text-gray-900"
-                >
-                  <Filter className="h-4 w-4" />
-                  {showFilters ? 'Hide Filters' : 'Show Filters'}
-                  {showFilters ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
-                </button>
-                {!showFilters && (filteredFlights.length !== flights.length) && (
-                  <div className="text-sm text-gray-600">
-                    Filters active ({filteredFlights.length} of {flights.length} flights shown)
-                  </div>
-                )}
-              </div>
-              
-              {showFilters && (
-                <div className="flex flex-wrap gap-4 items-end">
-                  <div className="flex-1 min-w-[200px]">
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Company
-                    </label>
-                    <select
-                      value={selectedCompanyFilter}
-                      onChange={(e) => setSelectedCompanyFilter(e.target.value)}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                    >
-                      <option value="">All Companies</option>
-                      {companies.map((company) => (
-                        <option key={company.id} value={company.name}>
-                          {company.name}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                  <div className="flex-1 min-w-[200px]">
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Tail Number
-                    </label>
-                    <select
-                      value={selectedTailFilter}
-                      onChange={(e) => setSelectedTailFilter(e.target.value)}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                    >
-                      <option value="">All Tail Numbers</option>
-                      {Array.from(new Set(flights.map(f => f.tail_number))).map(tail => (
-                        <option key={tail} value={tail}>
-                          {tail}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                  <div className="flex-1 min-w-[200px]">
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Start Date
-                    </label>
-                    <input
-                      type="date"
-                      value={startDateFilter}
-                      onChange={(e) => setStartDateFilter(e.target.value)}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                    />
-                  </div>
-                  <div className="flex-1 min-w-[200px]">
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      End Date
-                    </label>
-                    <input
-                      type="date"
-                      value={endDateFilter}
-                      onChange={(e) => setEndDateFilter(e.target.value)}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                    />
-                  </div>
-                  <button
-                    onClick={() => {
-                      setSelectedCompanyFilter('');
-                      setSelectedTailFilter('');
-                      setStartDateFilter('');
-                      setEndDateFilter('');
-                    }}
-                    className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 flex items-center gap-2"
-                  >
-                    <Filter className="h-4 w-4" />
-                    Clear Filters
-                  </button>
-                </div>
-              )}
-              
-              <Calendar
-                localizer={localizer}
-                events={calendarEvents}
-                startAccessor="start"
-                endAccessor="end"
-                style={{ height: getCalendarHeight() }}
-                onSelectEvent={handleSelectEvent}
-                eventPropGetter={(event) => ({
-                  style: {
-                    backgroundColor: getColorForCompany(event.resource.company),
-                    fontSize: '0.875rem',
-                    opacity: event.resource.status === 'cancelled' ? 0.7 : 1,
-                  },
-                })}
-                dayPropGetter={() => ({
-                  style: {
-                    backgroundColor: 'white',
-                  },
-                })}
-                views={['month', 'week', 'day']}
-                defaultView={Views.MONTH}
-                view={calendarView}
-                onView={setCalendarView}
-                date={calendarDate}
-                onNavigate={date => setCalendarDate(date)}
-                popup={true}
-                components={{
-                  event: (props) => {
-                    const status = getFlightStatus(props.event.resource);
-                    return (
-                      <div title={props.title} className="flex items-center gap-1">
-                        <span className="truncate flex-1">{props.title}</span>
-                        {status?.icon}
-                      </div>
-                    );
-                  },
-                }}
-                min={minTime}
-                max={maxTime}
-                dayLayoutAlgorithm="no-overlap"
-                scrollToTime={minTime}
-              />
-            </div>
-          )}
-          {currentView === 'flights' && (
-            <div className="space-y-4">
-              <div className="flex justify-between items-center">
-                <h2 className="text-xl font-semibold">Flights</h2>
-                <button
-                  onClick={() => setCurrentView('calendar')}
-                  className="text-blue-600 hover:text-blue-900"
-                >
-                  Back to Calendar
-                </button>
-              </div>
-              <FlightTable
-                flights={flights}
-                onEdit={(flight) => {
-                  setSelectedFlight(flight);
-                  setIsFlightModalOpen(true);
-                }}
-              />
-            </div>
-          )}
-          {currentView === 'companies' && (
-            <div className="space-y-4">
-              <div className="flex justify-between items-center">
-                <h2 className="text-xl font-semibold">Companies</h2>
-                <button
-                  onClick={() => setCurrentView('calendar')}
-                  className="text-blue-600 hover:text-blue-900"
-                >
-                  Back to Calendar
-                </button>
-              </div>
-              <CompanyTable
-                companies={companies}
-                onEdit={(company) => {
-                  setSelectedCompany(company);
-                  setIsCompanyModalOpen(true);
-                }}
-              />
-            </div>
-          )}
-        </div>
-
-        {isFlightModalOpen && (
-          <FlightModal
-            flight={selectedFlight}
-            onClose={handleCloseFlightModal}
-            onSuccess={() => {
-              fetchData();
-            }}
-          />
-        )}
-
-        {isCompanyModalOpen && (
-          <CompanyModal
-            company={selectedCompany}
-            onClose={handleCloseCompanyModal}
-            onSuccess={fetchData}
-          />
-        )}
-      </div>
-    </div>
-  );
-}
-
-export default App;

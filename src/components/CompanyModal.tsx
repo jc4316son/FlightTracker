@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useForm } from 'react-hook-form';
 import { X, Plus, Trash2 } from 'lucide-react';
-import { supabase } from '../lib/supabase';
+import { db } from '../lib/db';
 import type { Company, CompanyTail } from '../types';
 
 interface CompanyModalProps {
@@ -34,14 +34,14 @@ export default function CompanyModal({ company, onClose, onSuccess }: CompanyMod
       }
 
       try {
-        const { data, error } = await supabase
-          .from('company_tails')
-          .select('tail_number')
-          .eq('company_id', company.id);
-
-        if (error) throw error;
-
-        setTails(data.map(t => t.tail_number));
+        if (company?.name) {
+          const { data, error } = await db.companyTails.getByCompany(company.name);
+          if (error) {
+            console.error('Error loading tail numbers:', error);
+          } else {
+            setTails(data?.map(t => t.tail_number) || []);
+          }
+        }
       } catch (error) {
         console.error('Error loading tail numbers:', error);
       } finally {
@@ -59,27 +59,13 @@ export default function CompanyModal({ company, onClose, onSuccess }: CompanyMod
     }
   };
 
-  const removeTail = async (tail: string) => {
-    if (company) {
-      try {
-        const { error } = await supabase
-          .from('company_tails')
-          .delete()
-          .eq('company_id', company.id)
-          .eq('tail_number', tail);
-
-        if (error) throw error;
-      } catch (error) {
-        console.error('Error removing tail number:', error);
-        return;
-      }
-    }
+  const removeTail = (tail: string) => {
     setTails(tails.filter(t => t !== tail));
   };
 
   const onSubmit = async (data: any) => {
     try {
-      const user = (await supabase.auth.getUser()).data.user;
+      const user = (await db.auth.getUser()).data.user;
       if (!user) {
         console.error('No user found');
         return;
@@ -90,50 +76,29 @@ export default function CompanyModal({ company, onClose, onSuccess }: CompanyMod
         created_by: user.id,
       };
 
-      let companyId;
-
+      // Save company
       if (company) {
-        const { error: updateError } = await supabase
-          .from('companies')
-          .update(companyData)
-          .eq('id', company.id);
-
-        if (updateError) throw updateError;
-        companyId = company.id;
+        const { error } = await db.companies.update(company.id, companyData);
+        if (error) throw new Error(error);
       } else {
-        const { data: newCompany, error: insertError } = await supabase
-          .from('companies')
-          .insert(companyData)
-          .select()
-          .single();
-
-        if (insertError) throw insertError;
-        companyId = newCompany.id;
+        const { data: newCompany, error } = await db.companies.create(companyData);
+        if (error) throw new Error(error);
+        if (!newCompany) throw new Error('Failed to create company');
+        company = newCompany;
       }
 
-      // Handle tail numbers
-      if (tails.length > 0) {
-        const tailData = tails.map(tail_number => ({
-          company_id: companyId,
-          tail_number,
-        }));
-
-        // First, remove existing tails if editing
-        if (company) {
-          const { error: deleteError } = await supabase
-            .from('company_tails')
-            .delete()
-            .eq('company_id', companyId);
-
-          if (deleteError) throw deleteError;
+      // Handle tail numbers if we need to
+      if (tails.length > 0 && company) {
+        // Remove all existing tails
+        for (const oldTail of tails) {
+          await db.companyTails.delete(company.id, oldTail);
         }
 
-        // Then insert new ones
-        const { error: tailsError } = await supabase
-          .from('company_tails')
-          .insert(tailData);
-
-        if (tailsError) throw tailsError;
+        // Add all current tails
+        for (const newTail of tails) {
+          const { error } = await db.companyTails.create(company.id, newTail);
+          if (error) throw new Error(error);
+        }
       }
 
       onSuccess();
