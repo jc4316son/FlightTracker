@@ -1,0 +1,39 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Calendar customization */
+.rbc-calendar {
+  @apply font-sans;
+}
+
+/* Increase day cell height */
+.rbc-month-view .rbc-month-row {
+  min-height: 200px !important;
+}
+
+/* Style individual events */
+.rbc-event {
+  @apply rounded-md shadow-sm !important;
+  padding: 2px 4px !important;
+  margin: 1px 0 !important;
+}
+
+/* Remove "show more" button until more than 5 events */
+.rbc-month-view .rbc-row-segment {
+  max-height: none !important;
+}
+
+.rbc-month-view .rbc-row-segment .rbc-event-content {
+  @apply text-sm font-medium !important;
+}
+
+/* Only show "more" button after 5 events */
+.rbc-month-view .rbc-row-segment:not(:has(> div:nth-child(5))) .rbc-show-more {
+  display: none !important;
+}
+
+/* Ensure proper spacing between events */
+.rbc-event + .rbc-event {
+  margin-top: 2px !important;
+}
